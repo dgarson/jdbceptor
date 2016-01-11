@@ -2,6 +2,8 @@ package org.drg.jdbceptor.hibernate;
 
 import org.drg.jdbceptor.api.InstrumentedConnection;
 import org.drg.jdbceptor.hibernate.event.TransactionListener;
+import org.drg.jdbceptor.internal.DataSourceMember;
+import org.drg.jdbceptor.internal.UserDataStorage;
 import org.hibernate.Transaction;
 
 /**
@@ -10,7 +12,7 @@ import org.hibernate.Transaction;
  *
  * @author dgarson
  */
-public interface InstrumentedTransaction extends Transaction {
+public interface InstrumentedTransaction extends Transaction, UserDataStorage, DataSourceMember {
 
     /**
      * Returns a unique identifier for this transaction.
@@ -21,24 +23,19 @@ public interface InstrumentedTransaction extends Transaction {
      * Returns the metadata-aware ConnectionProvider that is being used for connections that resulted in this
      * transaction.
      */
-    MetadataAwareConnectionProvider getConnectionProvider();
+    InstrumentedConnectionProvider getConnectionProvider();
 
     /**
-     * Returns the timestamp when this transaction began. If this transaction has not yet begun (from the perspective
-     * of MySQL), then this method will return zero.
+     * Returns the timestamp when this transaction began, in nanoseconds since the Unix epoch. If this transaction
+     * has not yet begun (from the perspective of the database server), then this method will return zero.
      */
-    long getOpenedTimestamp();
+    long getOpenedTimestampNanos();
 
     /**
      * Returns the duration in milliseconds that this transaction has been active. If the transaction object has been
      * created but the transaction has not yet begun, then this method will return <code>-1</code>.
      */
-    long getDurationMillis();
-
-    /**
-     * Returns the label associated with the database for which this transaction is managed.
-     */
-    String getDatabaseName();
+    long getDurationNanos();
 
     /**
      * Returns the Connection currently associated with this Transaction, if one has been leased already. If there is no

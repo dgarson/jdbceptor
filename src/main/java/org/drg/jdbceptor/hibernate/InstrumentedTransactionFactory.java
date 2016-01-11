@@ -3,7 +3,12 @@ package org.drg.jdbceptor.hibernate;
 import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
 import org.drg.jdbceptor.api.InstrumentedConnection;
-import org.drg.jdbceptor.hibernate.event.TransactionListener;
+import org.drg.jdbceptor.config.ConnectionResolver;
+import org.drg.jdbceptor.hibernate.config.HibernateDataSourceConfiguration;
+import org.drg.jdbceptor.hibernate.impl.InstrumentedJDBCContextImpl;
+import org.drg.jdbceptor.hibernate.impl.InstrumentedTransactionImpl;
+import org.drg.jdbceptor.impl.DataSourceManager;
+import org.drg.jdbceptor.util.JdbcUtils;
 import org.hibernate.ConnectionReleaseMode;
 import org.hibernate.HibernateException;
 import org.hibernate.Transaction;
@@ -16,12 +21,14 @@ import java.sql.Connection;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicLong;
 
+import javax.annotation.Nonnull;
+
 /**
  * Created by dgarson on 11/13/15.
  */
 public class InstrumentedTransactionFactory implements TransactionFactory {
 
-    private static final String HOSTNAME_PREFIX = Host.getShortHostname();
+    private static final String HOSTNAME_PREFIX = JdbcUtils.getHostname();
 
     /**
      * Property in the configuration properties that declares the transaction factory implementation class to use under
@@ -30,16 +37,32 @@ public class InstrumentedTransactionFactory implements TransactionFactory {
     public static final String PROPERTY_DELEGATE_TRANSACTION_FACTORY = "jdbceptor.hibernate.transaction_factory_class";
 
     /**
+     * Reference to the data source configuration associated with the connection provider for the SessionFactory that
+     * owns this TransactionFactory.
+     */
+    private final HibernateDataSourceConfiguration dataSourceConfig;
+
+    /**
+     * The instance of {@link org.drg.jdbceptor.impl.DataSourceManager} that is keeping track of transactions and
+     * connections to this data source. </br>
+     * This cannot be injected until after the configurations are all processed.
+     */
+    private DataSourceManager dataSourceManager;
+
+    /**
      * The actual TransactionFactory implementation being used.
      */
     private TransactionFactory targetFactory;
 
-    private TransactionCustomizer customizer;
-    private HibernateConnectionResolver connectionResolver;
-    private MetadataAwareConnectionProvider connectionProvider;
-    private TransactionListener transactionInterceptor;
+    /**
+     * Reference to any ConnectionResolver provided for this data source in {@link #dataSourceConfig}.
+     */
+    private ConnectionResolver connectionResolver;
 
-    private final HibernateAwareInstrumentationHandler instrumentationHandler;
+    /**
+     * Reference to the connection provider that sits along side this transaction factory for the same SessionFactory.
+     */
+    private InstrumentedConnectionProvider connectionProvider;
 
     /**
      * AtomicLong that keeps track of the next identifier unique to this particular TransactionFactory instance, which
@@ -48,47 +71,73 @@ public class InstrumentedTransactionFactory implements TransactionFactory {
     private final AtomicLong nextLocalTransactionId = new AtomicLong();
 
     public InstrumentedTransactionFactory() {
-        InstrumentationHandler handler = Jdbceptor.getInstrumentationHandler();
-        Preconditions.checkNotNull(handler, "instrumentationHandler not present!");
-        if (!HibernateAwareInstrumentationHandler.class.isAssignableFrom(handler.getClass())) {
-            throw new IllegalStateException("Unable to use InstrumentedTransactionFactory without " +
-                handler.getClass() + " implementing the HibernateAwareInstrumentationHandler interface!");
+        dataSourceConfig = InstrumentedHibernateConfiguration.getCurrentDataSourceConfig();
+        if (dataSourceConfig == null) {
+            throw new IllegalStateException("You must use an InstrumentedHibernateConfiguration to build a " +
+                "SessionFactory with Jdbceptor integration");
         }
-        instrumentationHandler = (HibernateAwareInstrumentationHandler) handler;
+        this.connectionResolver = dataSourceConfig.getConnectionResolver();
     }
 
-    void setDependencies(MetadataAwareConnectionProvider connectionProvider,
-                         TransactionCustomizer customizer, HibernateConnectionResolver connectionResolver) {
+    /**
+     * Invoked after all dependencies have been injected into this component. This must always come after a call to the
+     * {@link #setConnectionProvider(InstrumentedConnectionProvider)} method.
+     */
+    void initialize() {
+        // no-op for now
+    }
+
+    /**
+     * Provides a reference to the connection provider, which must be done after construction since its construction
+     * also occurs during the SessionFactory building.
+     * @throws IllegalArgumentException if <strong>connectionProvider</strong> is <code>null</code>
+     */
+    void setConnectionProvider(@Nonnull InstrumentedConnectionProvider connectionProvider) {
+        Preconditions.checkNotNull(connectionProvider, "connectionProvider cannot be null");
         this.connectionProvider = connectionProvider;
-        this.transactionInterceptor = instrumentationHandler.getTransactionInterceptor(connectionProvider);
-        this.customizer = customizer;
-        this.connectionResolver = connectionResolver;
     }
 
     @Override
-    public Transaction createTransaction(JDBCContext jdbcContext,
-                                         Context context) throws HibernateException {
-        Transaction realTransaction = targetFactory.createTransaction(jdbcContext, context);
-        // return immediately and without decoration if not instrumented
-        if (instrumentationHandler == null || !instrumentationHandler.isInstrumentTransactionsEnabled()) {
+    public Transaction createTransaction(final JDBCContext jdbcContext, final Context context) throws HibernateException {
+        // check whether we are instrumenting transactions for this data source at all, even if not right now
+        if (!dataSourceConfig.isInstrumentTransactionsEnabled()) {
+            return targetFactory.createTransaction(jdbcContext, context);
+        }
+
+        // wrap the contexts in delegates so we can intercept callbacks
+        JDBCContext.Context proxyOwner = InstrumentedJDBCContextImpl.createProxyContext(this, jdbcContext);
+        JDBCContext wrappedJdbcContext = (JDBCContext) InstrumentedJDBCContextImpl
+            .createInstrumentedContext(proxyOwner, jdbcContext);
+
+        // create the real transaction before doing anything, since there is a chance this could fail
+        Transaction realTransaction = targetFactory.createTransaction(wrappedJdbcContext, proxyOwner);
+        Connection rawConn = JdbcUtils.getConnectionFromJdbcContext(jdbcContext);
+        InstrumentedConnection conn = (rawConn != null ? dataSourceManager.resolveInstrumentedConnection(rawConn)
+            : null);
+        if (rawConn != null) {
+            if (connectionResolver != null) {
+                conn = connectionResolver.resolveInstrumentedConnection(rawConn);
+            } else if (rawConn instanceof InstrumentedConnection) {
+                conn = (InstrumentedConnection)rawConn;
+            } else {
+                throw new IllegalStateException("Unable to coerce connection of type '" + rawConn.getClass() +
+                    "' into an instance of InstrumentedConnection for data source '" + dataSourceConfig.getId() + "'");
+            }
+        }
+
+        // return transaction without wrapping if we are not instrumenting this particular connection
+        if (conn != null && !conn.isInstrumented()) {
             return realTransaction;
         }
-        Connection connection = ConnectionProviderUtils.getConnectionFromJdbcContext(jdbcContext);
-        InstrumentedConnection conn = (connection != null ?
-            (connectionResolver != null ? connectionResolver.resolveInstrumentedConnection(connection) :
-                (InstrumentedConnection)connection) : null);
-        // return transaction without wrapping if we are in pass-through mode
-        if (conn != null && conn.isPassthrough()) {
-            return realTransaction;
-        }
+
         // generate a new unique identifier for the transaction and continue
-        String transactionId = generateNextTransactionId(connectionProvider.getDataSourceId(),
-            (conn != null ? conn.getConnectionId() : null));
+        String transactionId = generateNextTransactionId(dataSourceConfig.getId(), conn);
         InstrumentedTransactionImpl transaction = new InstrumentedTransactionImpl(connectionProvider,
-            jdbcContext, realTransaction, transactionInterceptor, transactionId);
-        if (customizer != null) {
-            customizer.customizeTransaction(transaction);
-        }
+            jdbcContext, realTransaction, transactionId);
+
+        // customize the transaction if there is a customizer defined
+        dataSourceManager.customizeTransaction(transaction);
+
         return transaction;
     }
 
@@ -129,12 +178,15 @@ public class InstrumentedTransactionFactory implements TransactionFactory {
         return targetFactory.isTransactionInProgress(jdbcContext, transactionContext, transaction);
     }
 
+    private String generateNextTransactionId(String dataSourceId, InstrumentedConnection conn) {
+        return generateNextTransactionId(dataSourceId, conn != null ? conn.getConnectionId() : null);
+    }
 
-    private String generateNextTransactionId(String databaseName, String connectionId) {
+    private String generateNextTransactionId(String dataSourceId, String connectionId) {
         StringBuilder sb = new StringBuilder(128);
         sb.append(HOSTNAME_PREFIX);
-        if (databaseName != null) {
-            sb.append("_db-").append(databaseName);
+        if (dataSourceId != null) {
+            sb.append("_db-").append(dataSourceId);
         }
         if (connectionId != null) {
             sb.append("_c-").append(connectionId);

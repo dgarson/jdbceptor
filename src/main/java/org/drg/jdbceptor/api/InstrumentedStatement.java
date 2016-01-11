@@ -1,6 +1,7 @@
 package org.drg.jdbceptor.api;
 
 import org.drg.jdbceptor.event.StatementExecutionListener;
+import org.drg.jdbceptor.internal.UserDataStorage;
 
 import java.sql.Statement;
 
@@ -51,15 +52,10 @@ public interface InstrumentedStatement<T extends Statement> extends Statement, U
     void addExecutionListener(StatementExecutionListener executionListener);
 
     /**
-     * Returns an optional identifier representing the currently active transaction in which this statement is being
-     * executed.
-     */
-    String getTransactionId();
-
-    /**
      * Returns the SQL query executed for this statement. If this statement is a prepared or callable statement, then
      * the returned query may or may not include question marks for parameterized queries, depending on whether query
-     * parameter capturing is enabled thru {@link InstrumentationHandler#isCaptureQueryParametersEnabled()}.
+     * parameter capturing is enabled through the
+     * {@link org.drg.jdbceptor.config.JdbceptorConfiguration#isCaptureQueryParametersEnabled()} property.
      */
     String getSqlStatement();
 }

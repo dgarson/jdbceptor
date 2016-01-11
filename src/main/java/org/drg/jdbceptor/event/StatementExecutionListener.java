@@ -3,7 +3,7 @@ package org.drg.jdbceptor.event;
 import org.drg.jdbceptor.api.InstrumentedStatement;
 
 /**
- * Listener interface where implementations can be attached to an instance of {@link org.drg.jdbceptor..}
+ * Listener interface where implementations can be attached to an instance of {@link InstrumentedStatement}
  * and invoked before or after execution of that statement. StatementExecutionListeners do <strong>NOT</strong>
  * support batch statement execution callbacks.</br>
  * <strong>NOTE:</strong> statement execution listeners that are explicitly attached to a statement will be invoked
@@ -14,23 +14,17 @@ import org.drg.jdbceptor.api.InstrumentedStatement;
 public interface StatementExecutionListener {
 
     /**
-     * Invoked whenever a statement is about to be executed thru the driver. The raw SQL is not available at this point
-     * because the driver has not yet intercepted the SQL. </br>
+     * Invoked whenever a statement is about to be executed thru the driver. The raw SQL is not always available at this
+     * point because the driver has not yet intercepted the SQL. </br>
      * Technically it could provide information for prepared calls but this would create inconsistencies with the
      * parameters available in intercepted SQL query execution.
-     * @param statement the statement that is being executed
-     * @param sql the SQL statement that is about to be executed
      */
-    void beforeExecutingStatement(InstrumentedStatement<?> statement, String sql);
+    void beforeExecutingStatement(StatementExecutingEvent event);
 
     /**
-     * Invoked after the statement finishes being executed.
-     * @param statement the executed statement
-     * @param sql the SQL query that was executed
-     * @param executionTimeMillis the number of milliseconds it took to execute the statement
-     * @param exception exception that was thrown during statement execution; this will only be non-null if the
-     *                  statement failed
+     * Invoked after a statement finishes being executed. Note that the <strong>sql</strong> argument will not be
+     * provided if the statement is a batch statement, to prevent large string concatenation. If desired, the SQL can
+     * be extracted through the {@link InstrumentedStatement#getSqlStatement()} method.
      */
-    void statementExecuted(InstrumentedStatement<?> statement, String sql, long executionTimeMillis,
-                           Exception exception);
+    void statementExecuted(StatementExecutedEvent event);
 }

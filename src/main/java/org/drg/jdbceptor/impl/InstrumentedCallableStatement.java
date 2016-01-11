@@ -1,5 +1,7 @@
 package org.drg.jdbceptor.impl;
 
+import org.drg.jdbceptor.api.InstrumentedConnection;
+
 import java.io.InputStream;
 import java.io.Reader;
 import java.math.BigDecimal;
@@ -28,7 +30,7 @@ import java.util.Map;
 public class InstrumentedCallableStatement extends AbstractParameterizedInstrumentedStatement<CallableStatement>
     implements CallableStatement {
 
-    public InstrumentedCallableStatement(InstrumentedConnectionImpl connection, CallableStatement statement, int statementId,
+    public InstrumentedCallableStatement(InstrumentedConnection connection, CallableStatement statement, int statementId,
                                          String sql, boolean captureQueryParameters) {
         super(connection, statement, statementId, sql, captureQueryParameters);
     }

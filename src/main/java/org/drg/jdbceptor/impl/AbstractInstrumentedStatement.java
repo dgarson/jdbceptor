@@ -1,8 +1,15 @@
 package org.drg.jdbceptor.impl;
 
+import static org.drg.jdbceptor.Jdbceptor.timestampNanos;
+
+import org.apache.commons.lang3.StringUtils;
+import org.drg.jdbceptor.Jdbceptor;
 import org.drg.jdbceptor.api.InstrumentedConnection;
 import org.drg.jdbceptor.api.InstrumentedStatement;
+import org.drg.jdbceptor.event.StatementExecutedEvent;
+import org.drg.jdbceptor.event.StatementExecutingEvent;
 import org.drg.jdbceptor.event.StatementExecutionListener;
+import org.drg.jdbceptor.hibernate.InstrumentedHibernateStatement;
 
 import java.sql.CallableStatement;
 import java.sql.Connection;
@@ -12,28 +19,26 @@ import java.sql.SQLException;
 import java.sql.SQLWarning;
 import java.sql.Statement;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Package-private abstract base class for implementations of {@link InstrumentedStatement}.
  *
  * @author dgarson
  */
-abstract class AbstractInstrumentedStatement<T extends Statement>
-    implements InstrumentedStatement<T>, Statement {
+abstract class AbstractInstrumentedStatement<T extends Statement> extends UserDataStorageImpl
+    implements InstrumentedHibernateStatement<T>, Statement {
 
     protected final T statement;
-    protected final InstrumentedConnectionImpl connection;
+    protected final InstrumentedConnection connection;
     protected final String transactionId;
     protected final int statementId;
 
     private boolean running;
 
     // timestamp when statement began executing SQL against the database
-    private long startTimeMillis;
-    private long completionTimeMillis;
+    private long startTimeNanos;
+    private long completionTimeNanos;
 
     // optional batch statement list to track SQL queries in the batch if we are tracking statements and using batching
     protected List<String> batchStatementList;
@@ -45,12 +50,9 @@ abstract class AbstractInstrumentedStatement<T extends Statement>
     // captured when committing/rolling back a transaction
     private String sql;
 
-    // optional user data that will be created upon first use
-    private Map<String, Object> userDataMap;
-
-    protected AbstractInstrumentedStatement(InstrumentedConnectionImpl connection, T statement, int statementId) {
+    protected AbstractInstrumentedStatement(InstrumentedConnection connection, T statement, int statementId) {
         this.statement = statement;
-        this.transactionId = connection.getTransactionId();
+        this.transactionId = StatementHelper.getTransactionIdOrNull(connection);
         this.connection = connection;
         this.statementId = statementId;
     }
@@ -58,13 +60,30 @@ abstract class AbstractInstrumentedStatement<T extends Statement>
     @Override
     public String getSqlStatement() {
         if (sql == null) {
-            sql = getFormattedSql();
+            // concatenate batch of statements if present
+            if (batchStatementList != null) {
+                // append terminating character and new line after each batch statement
+                sql = StringUtils.join(batchStatementList, ";\n");
+            } else {
+                // otherwise ask subclass for formatted SQL string
+                sql = getFormattedSql();
+            }
         }
         return sql;
     }
 
+    /**
+     * Returns the fully expanded SQL query that was or is executing in this statement. If SQL statement capturing is
+     * disabled then this method may return <code>null</code>.
+     * @return the formatted SQL query or <code>null</code> if unavailable
+     */
     protected abstract String getFormattedSql();
 
+    /**
+     * Returns the value that is currently cached from the return value of {@link #getFormattedSql()} which is
+     * lazily fetched in the first {@link #getSqlStatement()} call.
+     * @return the cached SQL query or <code>null</code> if it has not yet been formatted
+     */
     protected String getCachedSql() {
         return sql;
     }
@@ -77,19 +96,6 @@ abstract class AbstractInstrumentedStatement<T extends Statement>
     @Override
     public int getSeqNo() {
         return statementId;
-    }
-
-    @Override
-    public Object getUserData(String key) {
-        return (userDataMap != null ? userDataMap.get(key) : null);
-    }
-
-    @Override
-    public void setUserData(String key, Object value) {
-        if (userDataMap == null) {
-            userDataMap = new HashMap<>();
-        }
-        userDataMap.put(key, value);
     }
 
     @Override
@@ -114,8 +120,8 @@ abstract class AbstractInstrumentedStatement<T extends Statement>
 
     @Override
     public long getDurationMillis() {
-        return (completionTimeMillis > 0 ? completionTimeMillis - startTimeMillis :
-            System.currentTimeMillis() - startTimeMillis);
+        return (completionTimeNanos > 0 ? completionTimeNanos - startTimeNanos :
+            System.currentTimeMillis() - startTimeNanos);
     }
 
     @Override
@@ -126,47 +132,43 @@ abstract class AbstractInstrumentedStatement<T extends Statement>
         executionListeners.add(listener);
     }
 
+    /**
+     * Reports
+     * @param methodName
+     * @param sql
+     */
     protected void reportBeginExecution(String methodName, String sql) {
         // capture SQL statement as execution begins
         this.sql = sql;
 
         // mark as running, invoke callbacks
         running = true;
-        startTimeMillis = System.currentTimeMillis();
+        startTimeNanos = timestampNanos();
 
-        connection.executingStatement(this, methodName, sql);
+        StatementExecutingEvent event = new StatementExecutingEvent(connection, Jdbceptor.timestampNanos(),
+            this, methodName);
+        ((InstrumentedConnectionImpl)connection).beforeExecutingStatement(event);
 
         if (executionListeners != null) {
             for (StatementExecutionListener listener : executionListeners) {
-                listener.beforeExecutingStatement(this, sql);
+                listener.beforeExecutingStatement(event);
             }
         }
     }
 
     protected void reportStatementCompletion(String methodName, String sql, Exception exception) {
         running = false;
-        completionTimeMillis = System.currentTimeMillis();
-        long executionTimeMillis = completionTimeMillis - startTimeMillis;
-        connection.statementExecuted(this, methodName, sql, executionTimeMillis, exception);
+        completionTimeNanos = timestampNanos();
+        long executionTimeNanos = completionTimeNanos - startTimeNanos;
+        StatementExecutedEvent event = new StatementExecutedEvent(connection, completionTimeNanos,
+            executionTimeNanos, this, exception, methodName);
+        ((InstrumentedConnectionImpl)connection).statementExecuted(event);
 
         if (executionListeners != null) {
             for (StatementExecutionListener listener : executionListeners) {
-                listener.statementExecuted(this, sql, executionTimeMillis, exception);
+                listener.statementExecuted(event);
             }
         }
-    }
-
-    protected void reportBeginBatchExecution(String methodName, String sqlStatements[]) {
-        running = true;
-        startTimeMillis = System.currentTimeMillis();
-        connection.executingBatchStatements(this, methodName, sqlStatements);
-    }
-
-    protected void reportBatchStatementCompletion(String methodName, String[] sqlStatements, Exception exception) {
-        running = false;
-        completionTimeMillis = System.currentTimeMillis();
-        long executionTimeMillis = completionTimeMillis - startTimeMillis;
-        connection.batchStatementsExecuted(this, methodName, sqlStatements, executionTimeMillis, exception);
     }
 
     @Override
@@ -318,14 +320,14 @@ abstract class AbstractInstrumentedStatement<T extends Statement>
         String[] sqlStatements = (batchStatementList == null ? null :
             batchStatementList.toArray(new String[batchStatementList.size()]));
         if (sqlStatements != null) {
-            reportBeginBatchExecution("executeBatch", sqlStatements);
+            reportBeginExecution("executeBatch", /*sql=*/null);
         }
         try {
             int[] results = statement.executeBatch();
-            reportBatchStatementCompletion("executeBatch", sqlStatements, /*exception=*/null);
+            reportStatementCompletion("executeBatch",  /*sql=*/null, /*exception=*/null);
             return results;
         } catch (SQLException | RuntimeException e) {
-            reportBatchStatementCompletion("executeBatch", sqlStatements, e);
+            reportStatementCompletion("executeBatch",  /*sql=*/null, e);
             throw e;
         }
     }

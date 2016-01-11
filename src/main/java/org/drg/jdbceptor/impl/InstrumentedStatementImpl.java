@@ -1,5 +1,7 @@
 package org.drg.jdbceptor.impl;
 
+import org.drg.jdbceptor.api.InstrumentedConnection;
+
 import java.sql.Statement;
 
 /**
@@ -10,7 +12,7 @@ import java.sql.Statement;
  */
 public class InstrumentedStatementImpl extends AbstractInstrumentedStatement<Statement> implements Statement {
 
-    public InstrumentedStatementImpl(InstrumentedConnectionImpl connection, Statement statement, int statementId) {
+    public InstrumentedStatementImpl(InstrumentedConnection connection, Statement statement, int statementId) {
         super(connection, statement, statementId);
     }
 

@@ -1,10 +1,16 @@
-package org.drg.jdbceptor.hibernate;
+package org.drg.jdbceptor.hibernate.impl;
+
+import static org.drg.jdbceptor.Jdbceptor.timestampNanos;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.drg.jdbceptor.api.InstrumentedConnection;
+import org.drg.jdbceptor.hibernate.InstrumentedConnectionProvider;
+import org.drg.jdbceptor.hibernate.InstrumentedTransaction;
 import org.drg.jdbceptor.hibernate.event.TransactionListener;
+import org.drg.jdbceptor.impl.DataSourceManager;
 import org.drg.jdbceptor.impl.InstrumentedConnectionImpl;
-import org.drg.jdbceptor.util.JdbcUrlUtils;
+import org.drg.jdbceptor.impl.UserDataStorageImpl;
+import org.drg.jdbceptor.util.JdbcUtils;
 import org.hibernate.HibernateException;
 import org.hibernate.Transaction;
 import org.hibernate.jdbc.JDBCContext;
@@ -14,20 +20,17 @@ import org.slf4j.LoggerFactory;
 import java.sql.Connection;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.transaction.Synchronization;
 
 /**
  * @author dgarson
  */
-public class InstrumentedTransactionImpl implements Transaction, InstrumentedTransaction {
+public class InstrumentedTransactionImpl extends UserDataStorageImpl implements Transaction, InstrumentedTransaction {
 
     private static final Logger log = LoggerFactory.getLogger(InstrumentedTransactionImpl.class);
 
-    private final HibernateAwareInstrumentationHandler instrumentationHandler;
-    private final MetadataAwareConnectionProvider connectionProvider;
-    private final TransactionInterceptor interceptor;
+    private final InstrumentedConnectionProvider connectionProvider;
     private final Transaction realTransaction;
     private final String transactionId;
 
@@ -38,28 +41,24 @@ public class InstrumentedTransactionImpl implements Transaction, InstrumentedTra
 
     private List<TransactionListener> transactionListeners;
 
-    long openedTimestamp; // timestamp when the begin() method was called
-    long closedTimestamp;
+    long openedTimestampNanos; // timestamp when the begin() method was called
+    long closedTimestampNanos;
 
     // optional user-data attached to this transaction
     private Object userData;
 
-    private final AtomicBoolean marked = new AtomicBoolean(false);
-
-    InstrumentedTransactionImpl(MetadataAwareConnectionProvider connectionProvider, JDBCContext jdbcContext,
-                                Transaction realTransaction, TransactionInterceptor interceptor, String transactionId) {
+    InstrumentedTransactionImpl(InstrumentedConnectionProvider connectionProvider, JDBCContext jdbcContext,
+                                Transaction realTransaction, String transactionId) {
         // this should always be the case otherwise an instance of this class should have never been allowed to be
         //          constructed
-        this.instrumentationHandler = (HibernateAwareInstrumentationHandler) Jdbceptor.getInstrumentationHandler();
         this.connectionProvider = connectionProvider;
-        this.interceptor = interceptor;
         this.jdbcContext = jdbcContext;
         this.realTransaction = realTransaction;
         this.transactionId = transactionId;
     }
 
     @Override
-    public MetadataAwareConnectionProvider getConnectionProvider() {
+    public InstrumentedConnectionProvider getConnectionProvider() {
         return connectionProvider;
     }
 
@@ -77,27 +76,37 @@ public class InstrumentedTransactionImpl implements Transaction, InstrumentedTra
     }
 
     @Override
-    public long getOpenedTimestamp() {
-        return openedTimestamp;
+    public long getOpenedTimestampNanos() {
+        return openedTimestampNanos;
     }
 
     @VisibleForTesting
-    public long getClosedTimestamp() {
-        return closedTimestamp;
+    public long getClosedTimestampNanos() {
+        return closedTimestampNanos;
     }
 
     @Override
-    public long getDurationMillis() {
-        if (openedTimestamp == 0) {
-            return 0;
+    public long getDurationNanos() {
+        if (openedTimestampNanos <= 0) {
+            // return -1 to indicate invalid duration
+            return -1L;
+        } else if (closedTimestampNanos > 0) {
+            // use the close and open timestamp since both are available
+            return closedTimestampNanos - openedTimestampNanos;
+        } else {
+            // use ticker value and compute instantaneous
+            return timestampNanos() - openedTimestampNanos;
         }
-        return (closedTimestamp > 0 ? (closedTimestamp - openedTimestamp) :
-            (System.currentTimeMillis() - openedTimestamp));
     }
 
     @Override
-    public String getDatabaseName() {
+    public String getDataSourceId() {
         return connectionProvider.getDataSourceId();
+    }
+
+    @Override
+    public DataSourceManager getDataSourceManager() {
+        return connectionProvider.getDataSourceManager();
     }
 
     @Override
@@ -126,7 +135,7 @@ public class InstrumentedTransactionImpl implements Transaction, InstrumentedTra
 
         // notify parent connection if present
         if (connection != null) {
-            ((InstrumentedConnectionImpl)connection).beginningTransaction(this);
+            ((InstrumentedConnectionImpl)connection).beganTransaction(this);
         }
 
         // notify connection that we began
@@ -211,7 +220,7 @@ public class InstrumentedTransactionImpl implements Transaction, InstrumentedTra
     }
 
     private void refreshConnection() {
-        Connection conn = JdbcUrlUtils.getConnectionFromJdbcContext(jdbcContext);
+        Connection conn = JdbcUtils.getConnectionFromJdbcContext(jdbcContext);
         connection = (conn != null && conn instanceof InstrumentedConnection ? (InstrumentedConnection)conn : null);
     }
 

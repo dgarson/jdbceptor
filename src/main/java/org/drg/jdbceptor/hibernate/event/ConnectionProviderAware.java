@@ -1,6 +1,6 @@
 package org.drg.jdbceptor.hibernate.event;
 
-import org.drg.jdbceptor.hibernate.MetadataAwareConnectionProvider;
+import org.drg.jdbceptor.hibernate.InstrumentedConnectionProvider;
 
 /**
  * Awareness interface that indicates that the ConnectionProviderListener needs to have its parent ConnectionProviderWrapper injected into it.
@@ -15,5 +15,5 @@ public interface ConnectionProviderAware {
      * interceptor in its chain.
      * @param connectionProvider the (parent) connection provider
      */
-    void setConnectionProvider(MetadataAwareConnectionProvider connectionProvider);
+    void setConnectionProvider(InstrumentedConnectionProvider connectionProvider);
 }

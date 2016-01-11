@@ -2,7 +2,7 @@ package org.drg.jdbceptor.hibernate.event;
 
 import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.drg.jdbceptor.hibernate.MetadataAwareConnectionProvider;
+import org.drg.jdbceptor.hibernate.InstrumentedConnectionProvider;
 
 import java.util.Properties;
 
@@ -18,10 +18,10 @@ import java.util.Properties;
  */
 public class ConnectionProviderListenerSettings {
 
-    private final MetadataAwareConnectionProvider connectionProvider;
+    private final InstrumentedConnectionProvider connectionProvider;
     private final Properties hibernateProperties;
 
-    public ConnectionProviderListenerSettings(MetadataAwareConnectionProvider connectionProvider,
+    public ConnectionProviderListenerSettings(InstrumentedConnectionProvider connectionProvider,
                                               Properties hibernateProperties) {
         this.connectionProvider = connectionProvider;
         this.hibernateProperties = hibernateProperties;
@@ -29,7 +29,7 @@ public class ConnectionProviderListenerSettings {
 
     /**
      * Returns the identifier for the database that the parent connection provider has been configured to connect to.
-     * @see MetadataAwareConnectionProvider#getDataSourceId()
+     * @see InstrumentedConnectionProvider#getDataSourceId()
      */
     public String getDatabaseName() {
         return connectionProvider.getDataSourceId();
@@ -38,7 +38,7 @@ public class ConnectionProviderListenerSettings {
     /**
      * Returns the connection provider to which the listener is being attached.
      */
-    public MetadataAwareConnectionProvider getConnectionProvider() {
+    public InstrumentedConnectionProvider getConnectionProvider() {
         return connectionProvider;
     }
 

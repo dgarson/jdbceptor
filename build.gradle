@@ -36,6 +36,7 @@ dependencies {
             "com.google.guava:guava:${versions.guava}",
             "org.slf4j:slf4j-api:${versions.slf4j}",
             "joda-time:joda-time:${versions['joda-time']}",
+            "com.google.code.findbugs:jsr305:${versions.jsr305}",
             "ch.qos.logback:logback-core:${versions.logback}",
             "ch.qos.logback:logback-classic:${versions.logback}",
             "javax.transaction:jta:1.1",

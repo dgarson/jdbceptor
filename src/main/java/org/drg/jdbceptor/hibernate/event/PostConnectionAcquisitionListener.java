@@ -1,6 +1,6 @@
 package org.drg.jdbceptor.hibernate.event;
 
-import org.drg.jdbceptor.hibernate.MetadataAwareConnectionProvider;
+import org.drg.jdbceptor.hibernate.InstrumentedConnectionProvider;
 
 import java.sql.Connection;
 
@@ -17,12 +17,12 @@ public interface PostConnectionAcquisitionListener extends ConnectionProviderLis
      * @param connectionProvider the connection provider invoking this callback
      * @param connection the acquired connection
      */
-    void afterConnectionAcquired(MetadataAwareConnectionProvider connectionProvider, Connection connection);
+    void afterConnectionAcquired(InstrumentedConnectionProvider connectionProvider, Connection connection);
 
     /**
      * Callback invoked when an exception occurs (<strong>failure</strong>) during connection acquisition.
      * @param connectionProvider the connection provider invoking this callback
      * @param exc the exception thrown
      */
-    void afterConnectionAcquisitionFailed(MetadataAwareConnectionProvider connectionProvider, Throwable exc);
+    void afterConnectionAcquisitionFailed(InstrumentedConnectionProvider connectionProvider, Throwable exc);
 }

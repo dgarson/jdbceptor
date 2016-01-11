@@ -1,6 +1,6 @@
 package org.drg.jdbceptor.hibernate.event;
 
-import org.drg.jdbceptor.hibernate.MetadataAwareConnectionProvider;
+import org.drg.jdbceptor.hibernate.InstrumentedConnectionProvider;
 
 /**
  * Listener type that is invoked immediately prior to acquiring a new connection from the underlying connection provider
@@ -16,5 +16,5 @@ public interface PreConnectionAcquisitionListener extends ConnectionProviderList
      *
      * @param connectionProvider the connection provider being used to acquire the new connection
      */
-    void beforeConnectionAcquisition(MetadataAwareConnectionProvider connectionProvider);
+    void beforeConnectionAcquisition(InstrumentedConnectionProvider connectionProvider);
 }

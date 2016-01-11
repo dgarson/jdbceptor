@@ -1,18 +1,40 @@
 package org.drg.jdbceptor.util;
 
 import org.apache.commons.lang3.StringUtils;
+import org.drg.jdbceptor.hibernate.InstrumentedJDBCContext;
 import org.hibernate.HibernateException;
 import org.hibernate.cfg.Environment;
 import org.hibernate.jdbc.ConnectionManager;
 import org.hibernate.jdbc.JDBCContext;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.sql.Connection;
 import java.util.Properties;
 
 /**
  * @author dgarson
  */
-public class JdbcUrlUtils {
+public class JdbcUtils {
+
+    private static final String cachedHostname = resolveHostname();
+
+    /**
+     * Returns the hostname for this machine.
+     */
+    public static String getHostname() {
+        return cachedHostname;
+    }
+
+    private static String resolveHostname() {
+        InetAddress addr;
+        try {
+            addr = InetAddress.getLocalHost();
+        } catch (UnknownHostException uhe) {
+            return "localhost";
+        }
+        return addr.getCanonicalHostName();
+    }
 
     /**
      * Extracts the JDBC url from the associated Hibernate property.
@@ -45,12 +67,17 @@ public class JdbcUrlUtils {
      * @param jdbcContext the jdbc context
      */
     public static Connection getConnectionFromJdbcContext(JDBCContext jdbcContext) {
+        // return value from getAttachedConnection() if available, this way we can avoid connection allocation sometimes
+        if (jdbcContext instanceof InstrumentedJDBCContext) {
+            return ((InstrumentedJDBCContext)jdbcContext).getAttachedConnection();
+        }
+        // otherwise use the ConnectionManager directly...
         ConnectionManager connectionManager = jdbcContext.getConnectionManager();
         return (connectionManager != null && connectionManager.isCurrentlyConnected() ?
             connectionManager.getConnection() : null);
     }
 
-    private JdbcUrlUtils() {
+    private JdbcUtils() {
         // no instantiation
     }
 }

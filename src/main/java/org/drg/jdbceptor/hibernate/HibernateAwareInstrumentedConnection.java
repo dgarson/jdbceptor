@@ -1,6 +1,9 @@
 package org.drg.jdbceptor.hibernate;
 
 import org.drg.jdbceptor.api.InstrumentedConnection;
+import org.drg.jdbceptor.config.DataSourceConfiguration;
+import org.drg.jdbceptor.event.ConnectionClosedListener;
+import org.drg.jdbceptor.event.ConnectionOpenedListener;
 
 import java.sql.Connection;
 
@@ -23,12 +26,12 @@ public interface HibernateAwareInstrumentedConnection extends InstrumentedConnec
      * transaction is currently active. This is used by the {@link InstrumentedTransactionFactory} to keep the
      * connection up to date with the transaction instrumentation.
      */
-    void setCurrentTransaction(InstrumentedTransaction transaction);
+    //void setCurrentTransaction(InstrumentedTransaction transaction);
 
     /**
      * Returns a connection that represents a pooled connection around this physical, instrumented connection. </br>
      * <strong>NOTE:</strong> this property must be injected explicitly in order to support pooling.
-     * @see com.fitbit.jdbceptor.hibernate.HibernateConnectionResolver
+     * @see org.drg.jdbceptor.config.ConnectionResolver
      */
     Connection getPooledConnection();
 
@@ -44,4 +47,19 @@ public interface HibernateAwareInstrumentedConnection extends InstrumentedConnec
      * connection acquisition but in the case of connection pools, logical connections may not always line up one-to-one
      */
     void acquiredFromConnectionProvider(Connection connection);
+
+    /**
+     * Attaches an event listener that will be notified whenever the physical connection is closed when a connection
+     * pool is wrapping the Jdbceptor instrumented connections. When no connection pool is being used, the standard
+     * logical connection close listener should be used instead.
+     * @see #addCloseListener(ConnectionClosedListener)
+     */
+    void addPhysicalCloseListener(ConnectionClosedListener closeListener);
+
+    /**
+     * Attaches an event listener that will be notified whenever a pooled connection is acquired and wrapping this
+     * connection instance.
+     * @see DataSourceConfiguration#isPoolingConnections()
+     */
+    void addAcquisitionListener(ConnectionOpenedListener openListener);
 }

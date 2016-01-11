@@ -1,5 +1,7 @@
 package org.drg.jdbceptor.impl;
 
+import org.drg.jdbceptor.api.InstrumentedConnection;
+
 import java.io.InputStream;
 import java.io.Reader;
 import java.math.BigDecimal;
@@ -37,8 +39,8 @@ class AbstractParameterizedInstrumentedStatement<T extends PreparedStatement>
 
     private String formattedSql;
 
-    public AbstractParameterizedInstrumentedStatement(InstrumentedConnectionImpl connection, T statement,
-                                                          int statementId, String sql, boolean captureQueryParameters) {
+    public AbstractParameterizedInstrumentedStatement(InstrumentedConnection connection, T statement,
+                                                      int statementId, String sql, boolean captureQueryParameters) {
         super(connection, statement, statementId);
         this.captureQueryParameters = captureQueryParameters;
         this.sql = sql;
@@ -79,7 +81,7 @@ class AbstractParameterizedInstrumentedStatement<T extends PreparedStatement>
         String argValue;
         while (qpos >= 0) {
             try {
-                argValue = connection.getInstrumentationHandler().formatParameterValue(paramList.get(argIdx));
+                argValue = connection.getDataSourceManager().formatParameterValue(paramList.get(argIdx));
             } catch (IndexOutOfBoundsException ioobe) {
                 argValue = "?";
             }
